@@ -46,6 +46,15 @@ Opening `index.html` straight from disk won't work, because the browser blocks l
 
 The **Edit on GitHub** button on each page opens that page's file in GitHub's editor.
 
+## Deploy on Vercel
+
+1. vercel.com → **Add New → Project** → import `displayrex/field-manual`.
+2. Framework preset: **Other**. Leave build command and output directory empty.
+3. **Environment Variables**: add `FM_USER` and `FM_PASS` (your login for the site).
+4. **Deploy**. The browser asks for that username and password on every new session.
+
+`middleware.js` enforces the password on every path. If the variables are missing, the site returns 503 instead of going public. Each push to `main` redeploys automatically.
+
 ## Privacy
 
 This repo is private. GitHub Pages would make the site public (or require a paid plan for private Pages), so the default is to read it locally. Don't put secrets, tokens or client data in pages.
