@@ -1,0 +1,550 @@
+[
+ {
+  "id": "ai-assisted",
+  "path": "content/auto/ai-assisted.md",
+  "title": "AI-assisted scripting & docs",
+  "category": "AUTO",
+  "order": 5,
+  "summary": "How to use Claude or ChatGPT safely to write scripts, research and draft documentation, with a review checklist.",
+  "tags": [
+   "ai",
+   "claude",
+   "chatgpt",
+   "scripting",
+   "prompting",
+   "review"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Good uses\n- First draft of a script from a clear spec, then you review and test.\n- Explaining an unfamiliar log, error code or API response.\n- Converting between languages (Bash ↔ PowerShell ↔ Python).\n- Drafting runbooks, KB articles, change records and client emails.\n- Generating test data and edge-case lists.\n\n## Prompt pattern for scripts\n```text\nRole: macOS admin writing a Jamf policy script (zsh, runs as root).\nGoal: If FileVault is off, show the user a dialog and open System Settings.\nConstraints: no third-party tools; log to /var/log/company.log; exit 0 on success.\nInputs: Jamf parameter $4 = company name.\nOutput: one script with comments, then a list of assumptions and how to test it.\n```\nGive context (platform, runs-as user, versions), constraints and the output format you want. Paste real error messages verbatim.\n\n## Never paste\nSecrets (API tokens, passwords, private keys), client PII, full user lists, internal hostnames you're not allowed to share. Redact to placeholders (`<TOKEN>`, `user@example.com`). Check the client's AI policy before using AI on their data.\n\n## Review checklist before production\n- [ ] I can explain every line.\n- [ ] API endpoints and parameters checked against official docs (models invent plausible ones).\n- [ ] Destructive actions have a dry-run mode and a scope limit.\n- [ ] Ran it against a test user/device/tenant first.\n- [ ] Errors are handled; script exits non-zero on failure.\n- [ ] No secrets hardcoded; output doesn't log tokens.\n- [ ] Committed to Git with a meaningful message; peer-reviewed if it touches production.\n\n## Documentation flow\nPaste your rough notes + the commands you actually ran → ask for a runbook in your template → verify every step by doing it once.\n"
+ },
+ {
+  "id": "bash-macos",
+  "path": "content/auto/bash-macos.md",
+  "title": "Bash/zsh for Mac admin",
+  "category": "AUTO",
+  "order": 3,
+  "summary": "Shell patterns for Jamf scripts: running as the logged-in user, defaults, launchd, profiles and logging.",
+  "tags": [
+   "bash",
+   "zsh",
+   "macos",
+   "jamf scripts",
+   "launchd"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Jamf script parameters\nJamf passes `$1` mount point, `$2` computer name, `$3` username, and **`$4`–`$11`** are your custom parameters (label them in the script's Options tab).\n```zsh\n#!/bin/zsh\nappName=\"${4:-Google Chrome}\"\n```\n\n## Get the logged-in user (reliable)\n```zsh\ncurrentUser=$(echo \"show State:/Users/ConsoleUser\" | scutil | awk '/Name :/ && ! /loginwindow/ { print $3 }')\nuid=$(id -u \"$currentUser\")\n# Run something as that user (scripts run as root)\nlaunchctl asuser \"$uid\" sudo -u \"$currentUser\" open -a \"Self Service\"\n```\n\n## defaults & plists\n```zsh\ndefaults read /Library/Preferences/com.apple.loginwindow\nsudo defaults write /Library/Preferences/com.apple.loginwindow LoginwindowText \"Property of Company\"\n/usr/libexec/PlistBuddy -c \"Print :CFBundleShortVersionString\" \"/Applications/Slack.app/Contents/Info.plist\"\n```\nFor settings that must stick, prefer a **configuration profile** over `defaults write`.\n\n## System checks\n```zsh\nsw_vers -productVersion                 # macOS version\nfdesetup status                         # FileVault\n/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate\ncsrutil status                          # SIP\nsystem_profiler SPHardwareDataType | awk '/Serial/ {print $4}'\nsoftwareupdate --list\npkgutil --pkgs | grep -i falcon         # installed package receipts\nsudo profiles show -type configuration\n```\n\n## launchd (run on schedule / at boot)\n```xml\n<!-- /Library/LaunchDaemons/com.company.cleanup.plist -->\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n  <key>Label</key><string>com.company.cleanup</string>\n  <key>ProgramArguments</key><array><string>/usr/local/bin/cleanup.sh</string></array>\n  <key>StartInterval</key><integer>86400</integer>\n  <key>RunAtLoad</key><true/>\n</dict></plist>\n```\n```zsh\nsudo chown root:wheel /Library/LaunchDaemons/com.company.cleanup.plist\nsudo chmod 644 /Library/LaunchDaemons/com.company.cleanup.plist\nsudo launchctl bootstrap system /Library/LaunchDaemons/com.company.cleanup.plist\nsudo launchctl bootout system/com.company.cleanup\n```\n\n## Script hygiene\n```zsh\nset -euo pipefail                        # bash; in zsh use: setopt errexit nounset pipefail\nlog(){ echo \"$(date '+%F %T') [myscript] $*\" | tee -a /var/log/company-scripts.log; }\ntrap 'log \"failed at line $LINENO\"' ERR\n```\n- Exit `0` for success so Jamf logs it as completed; non-zero shows as failed.\n- Test locally with `sudo zsh -x script.sh` (trace mode).\n- User prompts: `osascript -e 'display dialog \"Restart now?\" buttons {\"Later\",\"Restart\"}'`, or swiftDialog for nicer UI.\n"
+ },
+ {
+  "id": "git",
+  "path": "content/auto/git.md",
+  "title": "Git reference",
+  "category": "AUTO",
+  "order": 1,
+  "summary": "Daily Git commands, branching workflow, fixing mistakes, and keeping secrets out of repos.",
+  "tags": [
+   "git",
+   "github",
+   "version control",
+   "branching"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Daily loop\n```bash\ngit status                       # what changed\ngit switch main && git pull      # start from latest\ngit switch -c feat/okta-report   # new branch\ngit add -p                       # stage hunk by hunk (review as you go)\ngit commit -m \"Add Okta inactive-user report\"\ngit push -u origin feat/okta-report\ngh pr create --fill              # open a PR with the GitHub CLI\n```\n\n## Looking around\n```bash\ngit log --oneline --graph --decorate -20\ngit diff                 # unstaged changes\ngit diff --staged        # what will be committed\ngit show <sha>           # one commit\ngit blame path/file.py   # who changed each line\ngit log -S \"SSWS\" --oneline   # commits that added/removed a string\n```\n\n## Undo table\n| Situation | Command |\n|---|---|\n| Discard changes to a file | `git restore file` |\n| Unstage a file | `git restore --staged file` |\n| Fix the last commit message / add a forgotten file | `git add file && git commit --amend` |\n| Undo last commit, keep changes | `git reset --soft HEAD~1` |\n| Undo a pushed commit safely | `git revert <sha>` |\n| Lost a commit after reset | `git reflog` → `git switch -c rescue <sha>` |\n| Park work temporarily | `git stash push -m \"wip\"` → `git stash pop` |\n\n## Staying current with main\n```bash\ngit fetch origin\ngit rebase origin/main     # replay your commits on top (clean history)\n# on conflict: edit files → git add <file> → git rebase --continue   (or --abort)\ngit push --force-with-lease   # only on your own branch, after a rebase\n```\n\n## Secrets\n- Never commit tokens. Use `.env` + `.gitignore`, or a secrets manager.\n- If one slips in: **rotate the secret first** (assume it's compromised), then clean history with `git filter-repo` and force-push.\n- Add a pre-commit secret scanner (`gitleaks`, `trufflehog`) and turn on GitHub secret scanning + push protection.\n\n## Config worth setting\n```bash\ngit config --global user.name \"Your Name\"\ngit config --global user.email you@example.com\ngit config --global init.defaultBranch main\ngit config --global pull.rebase true\ngit config --global alias.lg \"log --oneline --graph --decorate\"\n```\n\n## Repo layout for admin scripts\n```text\nit-automation/\n  okta/        jamf/        gam/        intune/\n  lib/         # shared helpers (auth, pagination, logging)\n  .env.example # variable names, no values\n  README.md    # what each script does, how to run, who owns it\n```\n"
+ },
+ {
+  "id": "powershell",
+  "path": "content/auto/powershell.md",
+  "title": "PowerShell essentials",
+  "category": "AUTO",
+  "order": 2,
+  "summary": "Syntax, pipelines, objects, error handling, CSV and REST patterns for Windows and Microsoft 365 admin.",
+  "tags": [
+   "powershell",
+   "windows",
+   "scripting",
+   "rest"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Find your way\n```powershell\nGet-Command *user*            # find cmdlets\nGet-Help Get-LocalUser -Examples\nGet-Process | Get-Member      # what properties does this object have?\n$PSVersionTable.PSVersion     # 5.1 (Windows PowerShell) vs 7.x (pwsh)\n```\n\n## Pipeline patterns\n```powershell\nGet-Service | Where-Object Status -eq 'Stopped' | Select-Object Name, StartType\nGet-ChildItem C:\\Logs -Recurse -Filter *.log | Where-Object LastWriteTime -lt (Get-Date).AddDays(-30) | Remove-Item -WhatIf\nImport-Csv users.csv | ForEach-Object { \"$($_.Email) -> $($_.Department)\" }\nGet-LocalUser | Export-Csv local-users.csv -NoTypeInformation\n```\n`-WhatIf` previews destructive actions. Use it every time first.\n\n## Script skeleton\n```powershell\n[CmdletBinding(SupportsShouldProcess)]\nparam(\n  [Parameter(Mandatory)][string]$CsvPath,\n  [switch]$DryRun\n)\n$ErrorActionPreference = 'Stop'\nStart-Transcript -Path \"$env:TEMP\\$(Get-Date -f yyyyMMdd-HHmm)-run.log\"\ntry {\n  foreach ($row in Import-Csv $CsvPath) {\n    if ($PSCmdlet.ShouldProcess($row.Email, 'Disable')) {\n      # action here\n    }\n  }\n} catch {\n  Write-Error \"Failed: $($_.Exception.Message)\"; exit 1\n} finally { Stop-Transcript }\n```\n\n## REST calls\n```powershell\n$h = @{ Authorization = \"SSWS $env:OKTA_TOKEN\"; Accept = 'application/json' }\n$users = Invoke-RestMethod -Uri \"https://yourorg.okta.com/api/v1/users?limit=200\" -Headers $h\n$users | Select-Object @{n='login';e={$_.profile.login}}, status\n\n# Follow pagination (PS 7+)\n$url = \"https://yourorg.okta.com/api/v1/users?limit=200\"; $all = @()\nwhile ($url) {\n  $r = Invoke-WebRequest -Uri $url -Headers $h\n  $all += ($r.Content | ConvertFrom-Json)\n  $url = ($r.RelationLink.next)\n}\n```\n\n## Handy one-liners\n```powershell\nTest-NetConnection login.company.com -Port 443\nGet-WinEvent -LogName Security -MaxEvents 50 | Where-Object Id -eq 4625   # failed logons\nGet-BitLockerVolume | Select MountPoint, ProtectionStatus, EncryptionPercentage\nmanage-bde -protectors -get C:     # BitLocker recovery key ID\ngpresult /r                        # applied GPOs\n```\n"
+ },
+ {
+  "id": "python-apis",
+  "path": "content/auto/python-apis.md",
+  "title": "Python for admin APIs",
+  "category": "AUTO",
+  "order": 4,
+  "summary": "A reusable pattern for SaaS admin APIs: sessions, retries, pagination, CSV output and safe dry runs.",
+  "tags": [
+   "python",
+   "requests",
+   "api",
+   "automation",
+   "csv"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Environment\n```bash\npython3 -m venv .venv && source .venv/bin/activate\npip install requests python-dotenv\npip freeze > requirements.txt\n```\n\n## Reusable client\n```python\nimport os, time, csv, logging, requests\nfrom requests.adapters import HTTPAdapter\nfrom urllib3.util.retry import Retry\nfrom dotenv import load_dotenv\n\nload_dotenv()\nlogging.basicConfig(level=logging.INFO, format=\"%(asctime)s %(levelname)s %(message)s\")\n\ndef session(auth_header: str) -> requests.Session:\n    s = requests.Session()\n    s.headers.update({\"Authorization\": auth_header, \"Accept\": \"application/json\"})\n    retry = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504],\n                  respect_retry_after_header=True, allowed_methods=None)\n    s.mount(\"https://\", HTTPAdapter(max_retries=retry))\n    return s\n\ndef paged_link(s, url, params=None):\n    # Okta/GitHub style: next page in the Link header\n    while url:\n        r = s.get(url, params=params, timeout=30); r.raise_for_status()\n        yield from r.json()\n        url, params = r.links.get(\"next\", {}).get(\"url\"), None\n\ndef write_csv(path, rows, fields):\n    with open(path, \"w\", newline=\"\") as f:\n        w = csv.DictWriter(f, fieldnames=fields, extrasaction=\"ignore\")\n        w.writeheader(); w.writerows(rows)\n```\n\n## Dry-run pattern for anything that changes data\n```python\nimport argparse\np = argparse.ArgumentParser()\np.add_argument(\"--apply\", action=\"store_true\", help=\"actually make changes\")\nargs = p.parse_args()\n\nfor user in targets:\n    if args.apply:\n        s.post(f\"{BASE}/api/v1/users/{user['id']}/lifecycle/deactivate\").raise_for_status()\n        logging.info(\"deactivated %s\", user[\"profile\"][\"login\"])\n    else:\n        logging.info(\"[dry-run] would deactivate %s\", user[\"profile\"][\"login\"])\n```\nDefault to dry run. Make `--apply` the deliberate step.\n\n## Pagination styles you'll meet\n| API | Style |\n|---|---|\n| Okta, GitHub | `Link` header, `rel=\"next\"` |\n| Microsoft Graph | `@odata.nextLink` in the body |\n| Jamf Pro API | `page` + `page-size`, stop at `totalCount` |\n| Google APIs | `nextPageToken` in body → `pageToken` param |\n| Slack | `response_metadata.next_cursor` |\n\n## Tips\n- Put secrets in `.env` (git-ignored) or a vault; ship `.env.example`.\n- Log every change with who/what/when — it doubles as audit evidence.\n- `jq` on the command line for quick JSON: `cat out.json | jq '.[] | select(.status==\"ACTIVE\") | .profile.login'`.\n"
+ },
+ {
+  "id": "firebase",
+  "path": "content/data/firebase.md",
+  "title": "Firebase",
+  "category": "DATA",
+  "order": 3,
+  "summary": "Firestore data model, security rules, Auth and the CLI for deploying rules and functions.",
+  "tags": [
+   "firebase",
+   "firestore",
+   "security rules",
+   "auth"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Pieces\n**Firestore** (document database: collections → documents → subcollections) · **Auth** (email, Google, SAML/OIDC with Identity Platform) · **Cloud Functions** · **Hosting** · **Storage**.\n\n## Security rules (Firestore)\nRules are the only thing standing between the web client and your data.\n```js\nrules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /users/{uid}/{document=**} {\n      allow read, write: if request.auth != null && request.auth.uid == uid;\n    }\n    match /kb/{doc} {\n      allow read: if request.auth != null;\n      allow write: if request.auth.token.admin == true;   // custom claim\n    }\n  }\n}\n```\nNever ship `allow read, write: if true;`. Test in the **Rules Playground** or the emulator.\n\n## Web client\n```js\nimport { initializeApp } from 'firebase/app'\nimport { getFirestore, collection, query, where, getDocs, doc, setDoc } from 'firebase/firestore'\nconst db = getFirestore(initializeApp(firebaseConfig))\nconst q = query(collection(db, 'devices'), where('compliant', '==', false))\nconst snap = await getDocs(q); snap.forEach(d => console.log(d.id, d.data()))\nawait setDoc(doc(db, 'devices', 'C02XXXX'), { compliant: true }, { merge: true })\n```\n\n## Admin SDK (server/scripts) — set a custom claim\n```js\nimport admin from 'firebase-admin'\nadmin.initializeApp()\nawait admin.auth().setCustomUserClaims(uid, { admin: true })\n```\n\n## CLI\n```bash\nnpm i -g firebase-tools\nfirebase login\nfirebase init firestore functions hosting\nfirebase emulators:start\nfirebase deploy --only firestore:rules\nfirebase deploy --only functions\n```\n\n## Firestore vs Supabase\n| | Firestore | Supabase |\n|---|---|---|\n| Model | Documents | Relational (Postgres) |\n| Access control | Security rules | Row Level Security (SQL) |\n| Queries | Simple, indexed | Full SQL, joins |\n| Best for | Mobile/realtime apps | Reporting, relational data |\n"
+ },
+ {
+  "id": "postgres-sql",
+  "path": "content/data/postgres-sql.md",
+  "title": "PostgreSQL & SQL",
+  "category": "DATA",
+  "order": 2,
+  "summary": "SQL patterns, psql commands, roles and grants, indexing and DBVisualizer tips.",
+  "tags": [
+   "postgresql",
+   "sql",
+   "psql",
+   "dbvisualizer",
+   "database"
+  ],
+  "updated": "2026-10-16",
+  "body": "## psql\n```bash\npsql \"postgresql://user:pass@host:5432/dbname?sslmode=require\"\n```\n| Command | Does |\n|---|---|\n| `\\l` | list databases |\n| `\\c db` | connect |\n| `\\dt` / `\\dt schema.*` | list tables |\n| `\\d table` | describe table |\n| `\\du` | roles |\n| `\\x` | expanded output toggle |\n| `\\timing` | show query time |\n| `\\copy t to 'out.csv' csv header` | export from client side |\n\n## SQL you use constantly\n```sql\nselect department, count(*) as n\nfrom users where status = 'active'\ngroup by department having count(*) > 5 order by n desc;\n\n-- Join: devices with their owner\nselect d.serial, d.os_version, u.email\nfrom devices d left join users u on u.id = d.owner_id\nwhere d.last_checkin < now() - interval '14 days';\n\n-- Upsert\ninsert into users (email, department) values ('jane@co.com','Finance')\non conflict (email) do update set department = excluded.department;\n\n-- Window: latest check-in per device\nselect distinct on (serial) serial, checked_in_at\nfrom checkins order by serial, checked_in_at desc;\n\n-- JSON field\nselect payload->>'eventType' as type, count(*) from okta_logs group by 1;\n```\n\n## Safe changes\n```sql\nbegin;\nupdate users set status = 'disabled' where email = 'jane@co.com';\n-- check the row count reported, then:\ncommit;   -- or rollback;\n```\nAlways run the `select` with the same `where` before an `update` or `delete`.\n\n## Roles & least privilege\n```sql\ncreate role reporting login password '...';\ngrant connect on database app to reporting;\ngrant usage on schema public to reporting;\ngrant select on all tables in schema public to reporting;\nalter default privileges in schema public grant select on tables to reporting;\n```\n\n## Performance\n- `explain analyze <query>` — look for *Seq Scan* on big tables.\n- `create index concurrently idx_devices_owner on devices(owner_id);`\n- Index columns used in `where`, `join`, `order by`.\n\n## DBVisualizer\n- New connection → PostgreSQL → host, port 5432, database, user; enable SSL for cloud DBs (Supabase: use the connection string from Project Settings → Database).\n- **SQL Commander** (Ctrl/⌘+Enter runs the statement under the cursor).\n- Turn off **Auto Commit** for production connections so changes need an explicit commit.\n- Use connection colors/tags (red for prod) and read-only connections where possible.\n- Right-click table → *Export* for CSV evidence pulls.\n"
+ },
+ {
+  "id": "supabase",
+  "path": "content/data/supabase.md",
+  "title": "Supabase",
+  "category": "DATA",
+  "order": 1,
+  "summary": "Projects, auth, Row Level Security, the JS client, and the CLI for migrations and Edge Functions.",
+  "tags": [
+   "supabase",
+   "postgres",
+   "rls",
+   "auth",
+   "edge functions"
+  ],
+  "updated": "2026-10-16",
+  "body": "## What's in a project\nPostgres database · **Auth** (email, OAuth, SAML SSO on paid plans) · auto-generated **REST (PostgREST)** and Realtime APIs · **Storage** buckets · **Edge Functions** (Deno).\nKeys: **anon/publishable** key (safe in browsers, limited by RLS) and **service_role/secret** key (bypasses RLS — server only, never in a frontend or Git).\n\n## Row Level Security (the important part)\nEvery table exposed to the API needs RLS on, or anyone with the anon key can read it.\n```sql\nalter table notes enable row level security;\n\ncreate policy \"owners read\" on notes for select\n  using ( auth.uid() = user_id );\ncreate policy \"owners write\" on notes for insert\n  with check ( auth.uid() = user_id );\ncreate policy \"owners update\" on notes for update\n  using ( auth.uid() = user_id ) with check ( auth.uid() = user_id );\n```\nTest: Dashboard → **Advisors → Security** flags tables without RLS.\n\n## JS client\n```js\nimport { createClient } from '@supabase/supabase-js'\nconst supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)\n\nawait supabase.auth.signInWithOtp({ email: 'me@company.com' })   // magic link\nconst { data, error } = await supabase.from('notes').select('id,title').order('created_at', { ascending:false })\nawait supabase.from('notes').insert({ title: 'Jamf notes', user_id: (await supabase.auth.getUser()).data.user.id })\n```\n\n## CLI workflow\n```bash\nbrew install supabase/tap/supabase   # or run any command as: npx supabase <cmd>\nsupabase login\nsupabase init\nsupabase link --project-ref <ref>\nsupabase start                       # local stack in Docker\nsupabase migration new add_notes     # writes supabase/migrations/<ts>_add_notes.sql\nsupabase db reset                    # re-run migrations locally\nsupabase db push                     # apply migrations to the linked project\nsupabase gen types typescript --linked > types.ts\nsupabase functions new okta-webhook\nsupabase functions deploy okta-webhook\nsupabase secrets set OKTA_TOKEN=...\n```\n\n## Admin habits\n- Keep schema in migrations in Git, not dashboard clicks.\n- Separate projects (or branches) for dev and prod.\n- Turn on **Point-in-Time Recovery** for prod if the data matters.\n- Rotate keys if a service key ever leaks.\n"
+ },
+ {
+  "id": "jml-runbook",
+  "path": "content/grc/jml-runbook.md",
+  "title": "Joiner / Mover / Leaver runbook",
+  "category": "GRC",
+  "order": 1,
+  "summary": "Step-by-step onboarding, role change and offboarding across Okta, Google, Microsoft and devices.",
+  "tags": [
+   "onboarding",
+   "offboarding",
+   "jml",
+   "runbook",
+   "leaver"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Joiner (target: productive on day one, zero IT touch)\n1. HR system creates the worker → Okta profile is mastered from HR (or created manually with department, title, manager, start date).\n2. Group rules place the user in `dept-*` and `role-*` groups → app assignments follow.\n3. SCIM creates accounts in Google Workspace / M365 / Slack / others.\n4. Laptop: serial assigned in ABM to Jamf (or Autopilot for Windows) → shipped to the user.\n5. Day one: user activates Okta, enrolls phishing-resistant MFA, opens the laptop → PreStage/Autopilot enrolls → profiles, EDR, apps install.\n6. Verify: device compliant in Jamf/Intune, Okta Device Trust shows managed, user can reach core apps.\n7. Close the ticket with links to the evidence (Okta event, Jamf record).\n\n## Mover\n1. HR changes department/title → Okta attributes update.\n2. Group rules move the user; **confirm old-role access was removed**, not just new access added.\n3. Manually granted access from the old role: review and remove.\n4. Note the change and approver on the ticket.\n\n## Leaver (target: cut off within 1 hour of HR notice)\n| # | Step | Where |\n|---|---|---|\n| 1 | Deactivate user (kills sessions, triggers SCIM deprovisioning) | Okta |\n| 2 | Clear sessions + revoke tokens | Okta / `gam user X deprovision` / `Revoke-MgUserSignInSession` |\n| 3 | Suspend / block sign-in | Google Workspace, Entra (if not fully federated) |\n| 4 | Remove from groups, reassign owned resources | Google, M365, Slack |\n| 5 | Transfer Drive / OneDrive data to manager | GAM data transfer, OneDrive access delegation |\n| 6 | Mail: forward or delegate, auto-reply | Google / Exchange |\n| 7 | Lock or wipe devices; collect hardware | Jamf / Intune |\n| 8 | Apps **without SCIM**: remove manually | Check your non-SCIM app list |\n| 9 | Shared credentials they knew: rotate | Password manager, break-glass if needed |\n| 10 | Record timestamps of each step | Ticket — this is the audit evidence |\n\n**Involuntary exit**: do steps 1–3 *while* the meeting happens, coordinated with HR.\n\n## Weekly hygiene\n- Orphan check: active accounts in apps with no active Okta user.\n- Stale accounts: no sign-in for 90 days.\n- Devices not checked in for 14+ days.\n"
+ },
+ {
+  "id": "soc2-evidence",
+  "path": "content/grc/soc2-evidence.md",
+  "title": "SOC 2 / ISO 27001 evidence map",
+  "category": "GRC",
+  "order": 2,
+  "summary": "Which technical setting satisfies which control, and the exact report to pull as proof.",
+  "tags": [
+   "soc 2",
+   "iso 27001",
+   "audit",
+   "compliance",
+   "evidence"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Control → setting → evidence\n| Control area | SOC 2 (TSC) | ISO 27001:2022 Annex A | Setting | Evidence to pull |\n|---|---|---|---|---|\n| MFA everywhere | CC6.1 | 5.17, 8.5 | Okta authentication policy requiring MFA | Policy screenshot + Okta MFA enrollment report |\n| Provisioning approval | CC6.2 | 5.16, 5.18 | Access requested via ticket, assigned by group | Sample of tickets matched to Okta assignment events |\n| Timely deprovisioning | CC6.2, CC6.3 | 5.18 | Okta deactivate + SCIM | HR termination list vs `user.lifecycle.deactivate` timestamps |\n| Access reviews | CC6.2, CC6.3 | 5.18 | Quarterly manager review | Signed review export + removal tickets |\n| Least privilege admins | CC6.3 | 8.2 | Separate admin accounts, PIM / JIT | Admin role report, PIM activation log |\n| Device encryption | CC6.7, CC6.8 | 8.1 | FileVault / BitLocker profiles | Jamf/Intune encryption compliance report |\n| Endpoint protection | CC6.8 | 8.7 | EDR deployed via MDM | EDR console coverage vs device inventory |\n| Patch management | CC7.1 | 8.8 | OS update enforcement with deadlines | OS version distribution report |\n| Logging & monitoring | CC7.2 | 8.15, 8.16 | Logs to Splunk, alerts | Alert definitions + sample triaged alert |\n| Change management | CC8.1 | 8.32 | Changes via ticket / PR | PR history with approvals, change tickets |\n| Asset inventory | CC6.1 | 5.9 | MDM inventory | Jamf/Intune export with owner |\n\n## How auditors test (Type II)\nThey sample across the whole period (e.g. 25 leavers out of 12 months) and check each one. One late deprovision is an exception. So automate and keep timestamps.\n\n## Evidence habits\n- Save reports with date in the filename: `2026-10-01_okta-mfa-enrollment.csv`.\n- Screenshot settings **with the URL and date visible**.\n- Keep a folder per control, per quarter.\n- Automate the recurring pulls with scripts (Okta API, Jamf API, GAM) on a schedule.\n"
+ },
+ {
+  "id": "gam",
+  "path": "content/gws/gam.md",
+  "title": "GAM cheat sheet",
+  "category": "GWS",
+  "order": 2,
+  "summary": "GAM / GAM7 commands for bulk Google Workspace administration: users, groups, Drive transfers, reports.",
+  "tags": [
+   "gam",
+   "google workspace",
+   "cli",
+   "bulk"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Setup\nInstall GAM7 from github.com/GAM-team/GAM (follow the install page on its wiki), then `gam create project` → `gam oauth create` → `gam user you@company.com check serviceaccount` and authorize scopes. Config lives in `~/.gam/`.\n\n## Users\n```bash\ngam info user jane@company.com\ngam create user new.hire@company.com firstname New lastname Hire password random changepassword on org \"/Staff/Engineering\"\ngam update user jane@company.com suspended on\ngam update user jane@company.com org \"/Former Employees\"\ngam print users fields primaryemail,suspended,lastlogintime,orgunitpath > users.csv\ngam print users query \"isEnrolledIn2Sv=false\" fields primaryemail   # who has no 2SV\n```\n\n## Offboard in one go\n```bash\nU=jane@company.com; M=manager@company.com\ngam update user $U suspended on\ngam user $U signout                       # kill web sessions\ngam user $U deprovision                   # revokes app passwords, backup codes, OAuth tokens\ngam create datatransfer $U gdrive $M privacy_level shared,private\ngam user $U delete groups                 # remove from all groups\ngam user $U forward on $M keep             # optional mail forwarding\n```\n\n## Groups\n```bash\ngam create group app-figma-users@company.com name \"Figma users\"\ngam update group app-figma-users@company.com add member jane@company.com\ngam update group team@company.com sync member file members.txt   # make membership match a file\ngam print group-members group team@company.com\n```\n\n## Drive and sharing\n```bash\ngam user jane@company.com print filelist query \"visibility='anyoneWithLink'\" fields id,name,owners\ngam user jane@company.com transfer drive manager@company.com\n```\n\n## Bulk from CSV\n```bash\n# CSV columns: email,ou\ngam csv moves.csv gam update user ~email org ~ou\n```\n`~column` pulls a value from each CSV row. Add `gam redirect csv out.csv multiprocess` before print commands to collect output from many users.\n\n## Reports\n```bash\ngam report login user all start -7d\ngam report admin start -30d\ngam report drive user jane@company.com event download start -7d\n```\n\n## Tips\n- Test any bulk command on one user first.\n- `gam version` and `gam checkconn` when something feels broken.\n"
+ },
+ {
+  "id": "gws-admin",
+  "path": "content/gws/gws-admin.md",
+  "title": "Google Workspace admin",
+  "category": "GWS",
+  "order": 1,
+  "summary": "Admin console essentials: OUs, 2SV enforcement, sharing controls, context-aware access and investigations.",
+  "tags": [
+   "google workspace",
+   "admin console",
+   "2sv",
+   "security"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Where things live (admin.google.com)\n| Need | Path |\n|---|---|\n| Users, suspend, reset | Directory → Users |\n| Org units (policy targeting) | Directory → Organizational units |\n| 2-Step Verification | Security → Authentication → 2-step verification |\n| SSO with Okta | Security → Authentication → SSO with third-party IdP |\n| Drive sharing | Apps → Google Workspace → Drive and Docs → Sharing settings |\n| Third-party app access (OAuth) | Security → Access and data control → API controls |\n| Context-Aware Access | Security → Access and data control → Context-Aware Access |\n| Endpoint management | Devices → Mobile & endpoints |\n| Audit logs | Reporting → Audit and investigation |\n| Security investigation tool | Security → Security center → Investigation tool (Enterprise) |\n\n## Security baseline\n1. **Enforce 2SV** for everyone, security keys/passkeys for admins. Give a new-user enrollment period (e.g. 1 week).\n2. **Separate admin accounts**: daily account has no admin role.\n3. **External sharing**: warn when sharing outside, default link sharing to *Restricted*, allowlist trusted domains if needed.\n4. **API controls**: block unconfigured third-party apps, mark known apps *Trusted*. Review **App access** for apps with Drive/Gmail scopes.\n5. **Less secure apps / legacy auth** off.\n6. **Alert center** on: suspicious login, leaked password, government-backed attack, admin privilege changes.\n\n## Offboarding in the console\nSuspend (blocks sign-in, keeps data) → reset sign-in cookies → revoke app-specific passwords and OAuth tokens (user → Security) → transfer Drive data (Apps → Drive → Transfer ownership, or **Data transfer** in Account) → set email forwarding/delegation or convert to group → remove from groups → after retention, delete (deletion offers data transfer too). Licence frees on delete, not suspend (unless archived user licence).\n\n## Investigation queries (Reporting → Audit and investigation)\n- **Login log**: event = *Failed login* / *Suspicious login*, filter by actor.\n- **Drive log**: visibility change to *Public on the web* or *External*; downloads by one user in the last 7 days (data-exfil check before a leaver goes).\n- **OAuth log**: new apps authorized with Gmail scopes.\n- **Admin log**: role assignments, setting changes.\n\n## Gotchas\n- Settings inherit down the OU tree; a child OU override shows as *Overridden*. Check where a setting is set before changing it.\n- Groups can be used for policy targeting too (config groups) — handy for pilots without moving OUs.\n- With Okta SSO, keep the super admins **outside** the SSO profile so you can still sign in if Okta fails.\n"
+ },
+ {
+  "id": "active-directory",
+  "path": "content/iam/active-directory.md",
+  "title": "Active Directory & Group Policy",
+  "category": "IAM",
+  "order": 6,
+  "summary": "AD users, groups and OUs from PowerShell, plus building, linking and troubleshooting GPOs.",
+  "tags": [
+   "active directory",
+   "ad",
+   "gpo",
+   "group policy",
+   "powershell",
+   "windows"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Tools\n- **ADUC** (`dsa.msc`) users and computers · **GPMC** (`gpmc.msc`) Group Policy · **ADAC** (`dsac.exe`) incl. Recycle Bin\n- PowerShell: `Import-Module ActiveDirectory` (RSAT), `GroupPolicy` module\n\n## Users & groups\n```powershell\nGet-ADUser jdoe -Properties LastLogonDate,Enabled,MemberOf,PasswordLastSet\nNew-ADUser -Name \"Jane Doe\" -SamAccountName jdoe -UserPrincipalName jdoe@corp.com `\n  -Path \"OU=Staff,DC=corp,DC=com\" -AccountPassword (Read-Host -AsSecureString) -Enabled $true\nDisable-ADAccount jdoe\nMove-ADObject (Get-ADUser jdoe).DistinguishedName -TargetPath \"OU=Disabled,DC=corp,DC=com\"\nUnlock-ADAccount jdoe\nSet-ADAccountPassword jdoe -Reset -NewPassword (Read-Host -AsSecureString); Set-ADUser jdoe -ChangePasswordAtLogon $true\nAdd-ADGroupMember \"VPN-Users\" -Members jdoe\nGet-ADGroupMember \"Domain Admins\" -Recursive | Select Name,SamAccountName\n\n# Stale accounts (90 days)\nSearch-ADAccount -AccountInactive -TimeSpan 90.00:00:00 -UsersOnly | Where Enabled | Select Name,LastLogonDate\n# Who's locked out\nSearch-ADAccount -LockedOut\n```\n\n## Offboarding (AD side)\nDisable → reset password → remove groups (keep a record) → move to Disabled OU → set description with date + ticket → force Entra sync if hybrid (`Start-ADSyncSyncCycle -PolicyType Delta`).\n```powershell\n$u = Get-ADUser jdoe -Properties MemberOf\n$u.MemberOf | Out-File \"C:\\Offboard\\jdoe-groups.txt\"\n$u.MemberOf | ForEach-Object { Remove-ADGroupMember $_ -Members jdoe -Confirm:$false }\nSet-ADUser jdoe -Description \"Disabled 2026-10-16 INC0012345\"\n```\n\n## Group Policy\n- Processing order: **Local → Site → Domain → OU** (LSDOU). Last applied wins; **Enforced** links beat child **Block Inheritance**.\n- Computer settings apply at boot, user settings at sign-in; background refresh ~90 min (± 30).\n- Target with **security filtering** (Authenticated Users must keep *Read* on the GPO) or **WMI filters** (e.g. `SELECT * FROM Win32_OperatingSystem WHERE Version LIKE \"10.%\"`).\n- Use **Group Policy Preferences** with item-level targeting for drive maps, printers, registry.\n\n## Troubleshooting on a client\n```powershell\ngpupdate /force\ngpresult /r                      # applied GPOs (summary)\ngpresult /h C:\\temp\\gp.html      # full report\nrsop.msc\nnltest /dsgetdc:corp.com         # which DC am I using\nTest-ComputerSecureChannel -Repair\nklist purge                      # clear Kerberos tickets after group changes\n```\nEvent Viewer → Applications and Services Logs → Microsoft → Windows → GroupPolicy → Operational.\n\n## Gotchas\n- Group membership changes need a new Kerberos ticket: sign out/in or `klist purge`.\n- Never edit **Default Domain Policy** beyond password/lockout/Kerberos. Create new GPOs.\n- Back up GPOs before changes: `Backup-GPO -All -Path C:\\GPOBackup`.\n"
+ },
+ {
+  "id": "entra-ca",
+  "path": "content/iam/entra-ca.md",
+  "title": "Entra ID & Conditional Access",
+  "category": "IAM",
+  "order": 4,
+  "summary": "Microsoft Entra ID essentials: users, groups, enterprise apps, and Conditional Access policy design.",
+  "tags": [
+   "entra",
+   "azure ad",
+   "conditional access",
+   "microsoft",
+   "mfa"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Where things live (entra.microsoft.com)\n| Need | Path |\n|---|---|\n| Users / groups | Identity → Users / Groups |\n| SSO apps | Identity → Applications → Enterprise applications |\n| App registrations (API access) | Identity → Applications → App registrations |\n| Conditional Access | Protection → Conditional Access → Policies |\n| Authentication methods | Protection → Authentication methods → Policies |\n| Sign-in logs | Identity → Monitoring & health → Sign-in logs |\n| PIM (just-in-time admin) | Identity governance → Privileged Identity Management |\n| Access reviews | Identity governance → Access reviews |\n\n## How Conditional Access works\n**Assignments** (who + what + conditions) → **Access controls** (grant or block, session).\nAll matching policies apply together; **block wins**, and every grant requirement must be met.\n\n## Baseline policy set\n1. **Require MFA for all users** — exclude break-glass accounts.\n2. **Block legacy authentication** — Conditions → Client apps → Exchange ActiveSync + Other clients → Block.\n3. **Require phishing-resistant MFA for admins** — Directory roles → Grant: Require authentication strength.\n4. **Require compliant device** for sensitive apps — Grant: Require device to be marked as compliant (from Intune).\n5. **Block high sign-in risk** (Entra ID P2) — Conditions → Sign-in risk: High.\n6. **Block countries you don't operate in** — named locations.\n\n## Rollout rules\n- Create every new policy in **Report-only** mode first. Review in Sign-in logs → the *Conditional Access* / *Report-only* tab for a week.\n- Use the **What If** tool (Policies → What If) to test a user + app + device combination.\n- Exclude **two break-glass cloud-only accounts** from every policy. Alert on any sign-in by them.\n\n## Troubleshooting a blocked sign-in\nSign-in logs → filter by user → open the failure → **Conditional Access** tab shows which policy applied and what it required. The error code (e.g. `53003` = blocked by CA, `50076` = MFA required) tells you the rest.\n\n## Hybrid notes\n- **Entra Connect / Cloud Sync** syncs on-prem AD. Force a delta sync: `Start-ADSyncSyncCycle -PolicyType Delta`.\n- Okta as IdP for M365: federate the domain with Okta. Then Okta policy controls sign-in, and Entra CA can still apply after.\n"
+ },
+ {
+  "id": "msgraph-ps",
+  "path": "content/iam/msgraph-ps.md",
+  "title": "Microsoft Graph PowerShell",
+  "category": "IAM",
+  "order": 5,
+  "summary": "Quick commands for users, groups, devices and sign-ins with the Microsoft.Graph module.",
+  "tags": [
+   "powershell",
+   "graph",
+   "entra",
+   "intune"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Setup\n```powershell\nInstall-Module Microsoft.Graph -Scope CurrentUser\nConnect-MgGraph -Scopes \"User.ReadWrite.All\",\"Group.ReadWrite.All\",\"AuditLog.Read.All\",\"DeviceManagementManagedDevices.ReadWrite.All\"\nGet-MgContext   # who am I, which scopes\n```\nFor unattended scripts: app registration + certificate → `Connect-MgGraph -ClientId $id -TenantId $tid -CertificateThumbprint $thumb`.\n\n## Users\n```powershell\nGet-MgUser -UserId jane@company.com -Property DisplayName,AccountEnabled,SignInActivity |\n  Select DisplayName,AccountEnabled,@{n='LastSignIn';e={$_.SignInActivity.LastSignInDateTime}}\n\n# Disable + revoke sessions (leaver)\nUpdate-MgUser -UserId jane@company.com -AccountEnabled:$false\nRevoke-MgUserSignInSession -UserId jane@company.com\n\n# All enabled users, exported\nGet-MgUser -All -Filter \"accountEnabled eq true\" -Property DisplayName,UserPrincipalName,Department |\n  Export-Csv users.csv -NoTypeInformation\n```\n\n## Groups\n```powershell\n$g = Get-MgGroup -Filter \"displayName eq 'app-salesforce-users'\"\nGet-MgGroupMember -GroupId $g.Id -All | ForEach-Object { $_.AdditionalProperties.userPrincipalName }\nNew-MgGroupMember -GroupId $g.Id -DirectoryObjectId (Get-MgUser -UserId jane@company.com).Id\n```\n\n## Intune devices\n```powershell\nGet-MgDeviceManagementManagedDevice -All |\n  Where-Object ComplianceState -ne 'compliant' |\n  Select DeviceName,UserPrincipalName,OperatingSystem,ComplianceState,LastSyncDateTime\n\n# Remote actions\nSync-MgDeviceManagementManagedDevice -ManagedDeviceId $id\nInvoke-MgRetireDeviceManagementManagedDevice -ManagedDeviceId $id   # remove company data\nClear-MgDeviceManagementManagedDevice -ManagedDeviceId $id          # full wipe\n```\n\n## Sign-in logs\n```powershell\nGet-MgAuditLogSignIn -Filter \"userPrincipalName eq 'jane@company.com'\" -Top 20 |\n  Select CreatedDateTime,AppDisplayName,IpAddress,@{n='Error';e={$_.Status.ErrorCode}}\n```\n\n## Tips\n- `-All` pages automatically. Without it you get the first page only.\n- Use `Find-MgGraphCommand -Uri '/users/{id}'` to find the cmdlet for any Graph URL.\n- `Invoke-MgGraphRequest -Method GET -Uri 'v1.0/me'` for anything without a cmdlet.\n"
+ },
+ {
+  "id": "okta-admin",
+  "path": "content/iam/okta-admin.md",
+  "title": "Okta: daily admin",
+  "category": "IAM",
+  "order": 1,
+  "summary": "Users, groups, app assignment, policies and System Log queries in the Okta Admin Console.",
+  "tags": [
+   "okta",
+   "users",
+   "groups",
+   "system log",
+   "policies"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Where things live\n| Need | Admin Console path |\n|---|---|\n| Users, status, reset MFA | Directory → People |\n| Groups and group rules | Directory → Groups (rules on the **Rules** tab) |\n| Profile attributes / mappings | Directory → Profile Editor / Profile Sources |\n| App integrations | Applications → Applications |\n| Sign-on and MFA policy | Security → Authentication Policies, Global Session Policy, Authenticators |\n| Device assurance | Security → Device Integrations / Device assurance policies |\n| Admin roles | Security → Administrators |\n| Audit trail | Reports → System Log |\n| Workflows | Workflow → Okta Workflows |\n\n## User lifecycle states\n`STAGED` → `PROVISIONED` (activation email pending) → `ACTIVE` → `SUSPENDED` / `DEPROVISIONED` (deactivated). Other states: `LOCKED_OUT`, `PASSWORD_EXPIRED`, `RECOVERY`.\n\n- **Deactivate** kills all sessions and fires deprovisioning to SCIM apps. It's the first step for any leaver.\n- **Suspend** blocks sign-in but does not deprovision apps. Use it for leave of absence.\n- **Delete** only works on deactivated users and is permanent. Keep deactivated users for audit history.\n\n## Common tasks\n**Reset MFA for a locked-out user**: People → user → **Reset Authenticators** → pick the factor(s). Verify identity out of band (video call, manager confirmation) before you do it, and note the ticket number.\n\n**Clear sessions after a suspected compromise**: People → user → **More actions → Clear user sessions** (tick \"Also revoke Okta-issued tokens\"). Then reset password and authenticators.\n\n**Assign an app by group (always prefer this)**: Applications → app → Assignments → Assign → Assign to Groups. Never assign individuals unless it's temporary, because individual assignments become orphaned access.\n\n**Group rule example**: `user.department == \"Finance\" AND user.employeeType == \"Full-Time\"` → adds to `app-netsuite-users`.\n\n## Group naming convention\n`<type>-<system>-<role>` — e.g. `app-slack-users`, `app-aws-admins`, `role-finance`, `dept-engineering`, `policy-mfa-pilot`. It keeps search, rules and access reviews readable.\n\n## System Log filters (copy into the search bar)\n```text\neventType eq \"user.session.start\" and outcome.result eq \"FAILURE\"\neventType eq \"user.lifecycle.deactivate\"\neventType eq \"user.mfa.factor.reset_all\"\neventType sw \"system.api_token\"\neventType eq \"policy.evaluate_sign_on\" and outcome.result eq \"DENY\"\nactor.alternateId eq \"jane@company.com\"\neventType eq \"group.user_membership.add\" and target.displayName eq \"app-aws-admins\"\neventType eq \"security.threat.detected\"\n```\nTip: open any event, expand **Actor / Client / Target**, and click a value to add it as a filter.\n\n## Gotchas\n- Policies evaluate **top-down, first match wins**. A broad rule above a strict one silently overrides it.\n- Always keep a **break-glass super admin** excluded from every new policy, with a hardware key stored offline.\n- API tokens inherit the creating admin's permissions and expire after 30 days unused. Create them from a dedicated service account, or use OAuth service apps.\n"
+ },
+ {
+  "id": "okta-api",
+  "path": "content/iam/okta-api.md",
+  "title": "Okta API & automation",
+  "category": "IAM",
+  "order": 3,
+  "summary": "Calling the Okta Management API with curl and Python: auth, filters, pagination, rate limits.",
+  "tags": [
+   "okta",
+   "api",
+   "python",
+   "curl",
+   "automation"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Auth\n- **API token** (quick): Security → API → Tokens. Header: `Authorization: SSWS <token>`.\n- **OAuth 2.0 service app** (preferred for production): scoped (`okta.users.read`, etc.), uses a private-key JWT, no admin-bound token.\n\n## curl essentials\n```bash\nOKTA=https://yourorg.okta.com\nH=\"Authorization: SSWS $OKTA_TOKEN\"\n\n# Find a user\ncurl -s -H \"$H\" \"$OKTA/api/v1/users/jane@company.com\" | jq '{id,status,profile:.profile.login}'\n\n# Search users (SCIM-style filter)\ncurl -s -H \"$H\" -G \"$OKTA/api/v1/users\" \\\n  --data-urlencode 'search=profile.department eq \"Finance\" and status eq \"ACTIVE\"'\n\n# Deactivate (leaver)\ncurl -s -X POST -H \"$H\" \"$OKTA/api/v1/users/$UID/lifecycle/deactivate\"\n\n# Clear sessions\ncurl -s -X DELETE -H \"$H\" \"$OKTA/api/v1/users/$UID/sessions?oauthTokens=true\"\n\n# Group members\ncurl -s -H \"$H\" \"$OKTA/api/v1/groups/$GID/users?limit=200\"\n\n# System Log since a time\ncurl -s -H \"$H\" -G \"$OKTA/api/v1/logs\" \\\n  --data-urlencode 'since=2026-10-01T00:00:00Z' \\\n  --data-urlencode 'filter=eventType eq \"user.lifecycle.deactivate\"'\n```\n\n## Pagination\nOkta pages with the `Link` header (`rel=\"next\"`). Always follow it — never assume one page.\n\n```python\nimport os, requests\nS = requests.Session()\nS.headers[\"Authorization\"] = f\"SSWS {os.environ['OKTA_TOKEN']}\"\nBASE = \"https://yourorg.okta.com\"\n\ndef paged(url, params=None):\n    while url:\n        r = S.get(url, params=params); r.raise_for_status()\n        yield from r.json()\n        url = r.links.get(\"next\", {}).get(\"url\"); params = None\n\n# Users who haven't signed in for 90 days\nimport datetime as dt\ncut = dt.datetime.utcnow() - dt.timedelta(days=90)\nfor u in paged(f\"{BASE}/api/v1/users\", {\"filter\": 'status eq \"ACTIVE\"', \"limit\": 200}):\n    last = u.get(\"lastLogin\")\n    if not last or dt.datetime.fromisoformat(last.rstrip(\"Z\")) < cut:\n        print(u[\"profile\"][\"login\"], last)\n```\n\n## Rate limits\nRead `X-Rate-Limit-Remaining` and `X-Rate-Limit-Reset` (epoch seconds). On HTTP 429, sleep until reset. Limits are per endpoint per minute.\n\n## Terraform (config as code)\nThe `okta/okta` provider manages groups, group rules, apps and policies. Good for reviewable changes: PR → plan → apply.\n"
+ },
+ {
+  "id": "okta-sso-scim",
+  "path": "content/iam/okta-sso-scim.md",
+  "title": "SSO & SCIM: onboarding an app",
+  "category": "IAM",
+  "order": 2,
+  "summary": "Wiring a SaaS app to Okta with SAML or OIDC, then turning on SCIM provisioning.",
+  "tags": [
+   "okta",
+   "saml",
+   "oidc",
+   "scim",
+   "sso",
+   "provisioning"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Pick the protocol\n| Protocol | When | You exchange |\n|---|---|---|\n| **SAML 2.0** | Most enterprise SaaS | ACS URL, Entity ID/Audience, IdP metadata (SSO URL, issuer, X.509 cert) |\n| **OIDC** | Modern / custom apps, mobile | Client ID, client secret, redirect URI, issuer `https://<org>.okta.com` |\n| **SWA** | No federation support | Okta stores the password. Last resort |\n\nCheck the **Okta Integration Network (OIN)** first: Applications → Browse App Catalog. OIN apps have prebuilt SAML and often SCIM.\n\n## SAML setup, step by step\n1. In the vendor's admin: find SSO settings and note the **ACS URL** and **Entity ID**.\n2. Okta: Applications → Create App Integration → SAML 2.0 (or the OIN app).\n3. Paste ACS URL as *Single sign-on URL*, Entity ID as *Audience URI*.\n4. **Name ID format**: EmailAddress; Application username: Email (unless the vendor wants something else).\n5. Add attribute statements the vendor needs (`firstName`, `lastName`, `email`, groups).\n6. Copy Okta's **Metadata URL** (or SSO URL + certificate) into the vendor.\n7. Assign a **pilot group**, test with a non-admin account in a private window.\n8. Test both flows: **SP-initiated** (start at the app) and **IdP-initiated** (start at the Okta dashboard).\n9. Only then enforce SSO in the vendor and remove local passwords. Keep one local break-glass admin in the vendor if it allows it.\n\n## Debugging SAML\n- Use the **SAML-tracer** browser extension to read the assertion.\n- Check: Audience matches Entity ID exactly, ACS URL matches (trailing slash matters), clock skew, certificate not expired, NameID is what the app expects.\n- Okta System Log: `eventType eq \"user.authentication.sso\"` for the app.\n\n## SCIM provisioning\n1. App → **Provisioning** tab → Configure API Integration → enter the vendor's SCIM base URL + bearer token.\n2. **To App**: enable *Create Users*, *Update User Attributes*, *Deactivate Users*.\n3. Map attributes under *Attribute Mappings*. Check `userName` matches the SAML NameID.\n4. **Push Groups** if the app uses groups for roles.\n5. Test: assign a test user → confirm created in the app → unassign → confirm deactivated.\n\nSCIM is what makes offboarding automatic. An app with SSO but no SCIM is a leaver risk: the account stays alive in the app. Track these on a list and remove accounts manually or with the app's API.\n\n## Certificate rotation\nOkta SAML signing certs last 10 years by default, but vendors sometimes demand rotation. Generate a new cert in the app's Sign On tab, give the vendor the new metadata, then activate it. Schedule this during a quiet window.\n"
+ },
+ {
+  "id": "slack-zoom-sso",
+  "path": "content/iam/slack-zoom-sso.md",
+  "title": "Slack & Zoom SSO/SCIM",
+  "category": "IAM",
+  "order": 7,
+  "summary": "Specifics for connecting Slack and Zoom to Okta or Entra: plan requirements, settings and gotchas.",
+  "tags": [
+   "slack",
+   "zoom",
+   "sso",
+   "scim",
+   "okta",
+   "saml"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Slack\n**Plan**: SAML SSO needs Business+ or Enterprise Grid. SCIM is available on Business+ and Grid.\n\n1. Okta → Browse App Catalog → **Slack** (OIN). Set your workspace subdomain (`company.slack.com`) or Grid org.\n2. Slack: **Workspace settings → Authentication → Configure SAML** (Grid: Org dashboard → Security → SSO). Paste Okta's SAML 2.0 Endpoint, Identity Provider Issuer and X.509 cert from the app's *Sign On → View setup instructions*.\n3. Test with a pilot user, then set SSO to **Required for all members** (except an owner break-glass, Grid allows exceptions).\n4. **SCIM**: Okta app → Provisioning → *Enable API integration* → authenticate with a Slack **Primary Owner** account. Enable create/update/deactivate and **Push Groups** for user groups/channels.\n\nGotchas\n- Deactivating in Okta deactivates the Slack account (SCIM). Guests (single/multi-channel) need the correct user type attribute.\n- Changing someone's email in Okta updates Slack only if *Update User Attributes* is on.\n- Session duration: set in Slack (*Session duration*) to force re-auth, e.g. 7 days.\n\n## Zoom\n**Plan**: SSO needs a paid account with a **vanity URL** (`company.zoom.us`) approved first.\n\n1. Okta → OIN **Zoom** app → enter vanity subdomain.\n2. Zoom admin → **Advanced → Single Sign-On**: Sign-in page URL, IdP certificate, Issuer (Entity ID), Binding = HTTP-Redirect; Service Provider Entity ID = `company.zoom.us`.\n3. **SAML Response Mapping** in Zoom: map an attribute (e.g. `department` or a group) → License type / role / user group. This auto-licenses users on sign-in.\n4. Associated domains: verify your email domain so all users must use SSO.\n5. **SCIM**: Zoom Marketplace → build a *Server-to-Server OAuth* or use the Okta Zoom integration's OAuth → enable provisioning.\n\nGotchas\n- Users with existing Zoom accounts on your domain get a prompt to merge/consolidate. Communicate before turning on.\n- License counts: auto-assigning Licensed to all can exceed your seats. Map from a group.\n\n## Test script for any SSO app\n- [ ] SP-initiated login · [ ] IdP-initiated from Okta dashboard · [ ] new user auto-created (JIT/SCIM)\n- [ ] attribute change syncs · [ ] unassign → account deactivated · [ ] admin break-glass still works\n"
+ },
+ {
+  "id": "abm-ade",
+  "path": "content/mdm/abm-ade.md",
+  "title": "Apple Business Manager & ADE",
+  "category": "MDM",
+  "order": 3,
+  "summary": "Device assignment, MDM server tokens, Managed Apple IDs and VPP apps in ABM.",
+  "tags": [
+   "apple business manager",
+   "abm",
+   "ade",
+   "dep",
+   "vpp",
+   "apns"
+  ],
+  "updated": "2026-10-16",
+  "body": "## What ABM does\n- **Automated Device Enrollment (ADE)**: Macs/iPhones bought from Apple or an authorized reseller show up in ABM by serial. You assign them to an MDM server, and they enroll during Setup Assistant. No touching.\n- **Apps and Books**: buy licenses (free apps too) and assign through MDM, no Apple ID needed on the device.\n- **Managed Apple Accounts**: federate with Google Workspace or Entra ID so accounts are created on sign-in.\n\n## The three tokens to track (expire yearly)\n| Token | Where renewed | If it expires |\n|---|---|---|\n| **APNs push certificate** | identity.apple.com + Jamf (Settings → Global → Push Certificates) | Jamf can't talk to any device. **Renew with the same Apple ID**, or every device must re-enroll |\n| **ADE server token** (.p7m) | ABM → Preferences → your MDM server → Download token | New devices don't get assigned settings |\n| **VPP / Apps and Books token** (.vpptoken) | ABM → Preferences → Payments and Billing | App installs and updates stop |\n\nPut all three renewal dates in a shared calendar with a 30-day warning.\n\n## Assign new devices\nABM → Devices → filter by order number or serial → **Edit MDM Server** → choose Jamf. Or set a **default MDM server** per device type so every new device goes straight to Jamf.\nThen in Jamf, the device appears under the ADE instance and gets the PreStage that matches its scope.\n\n## Adding a device not bought through Apple\n**Apple Configurator for iPhone** can add Macs (and Configurator on a Mac can add iOS devices) to ABM. A 30-day provisional period applies, during which the user can remove it.\n\n## Release a device (sale, return, recycle)\n1. Wipe it via MDM.\n2. ABM → device → **Release device**. Otherwise **Activation Lock** and ADE will follow it to the new owner.\n\n## Troubleshooting enrollment\n- Device skipped Remote Management screen: it was set up before assignment. Erase and reinstall, or run `sudo profiles renew -type enrollment` on a Mac.\n- Check what the device sees: `sudo profiles show -type enrollment`.\n"
+ },
+ {
+  "id": "intune",
+  "path": "content/mdm/intune.md",
+  "title": "Microsoft Intune",
+  "category": "MDM",
+  "order": 4,
+  "summary": "Compliance policies, configuration profiles, app deployment, Autopilot and remediation in Intune.",
+  "tags": [
+   "intune",
+   "windows",
+   "autopilot",
+   "compliance",
+   "mdm"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Where things live (intune.microsoft.com)\n| Need | Path |\n|---|---|\n| Compliance policies | Devices → Compliance |\n| Configuration (settings catalog) | Devices → Configuration |\n| Windows Update rings / feature updates | Devices → Windows updates |\n| Apps | Apps → All apps |\n| Autopilot | Devices → Enrollment → Windows Autopilot |\n| Scripts & Remediations | Devices → Scripts and remediations |\n| Encryption (BitLocker) | Endpoint security → Disk encryption |\n\n## Compliance baseline (Windows)\n- BitLocker required, Secure Boot required, TPM required\n- Minimum OS version, firewall on, Defender antivirus on and up to date\n- Password / Windows Hello required\n- Mark non-compliant after a short grace period (e.g. 1 day), then Conditional Access blocks sensitive apps.\n\n## Autopilot (zero-touch Windows)\n1. Hardware hash uploaded by OEM/reseller, or captured with `Get-WindowsAutopilotInfo -Online`.\n2. Device assigned to a group (dynamic group on `ZTDID` or group tag).\n3. Deployment profile (User-driven, Entra joined) + Enrollment Status Page blocking until required apps install.\n4. User signs in out of the box → enrolls → policies and apps apply.\n\n## Apps\n- **Win32 (.intunewin)**: wrap with `IntuneWinAppUtil.exe -c src -s setup.exe -o out`. Needs install/uninstall commands and a **detection rule** (file, registry, or script).\n- **Microsoft Store (new)** and **Microsoft 365 Apps** are built-in app types.\n- Assign as **Required** to device groups for baseline apps, **Available** to user groups for self-service (Company Portal).\n\n## Remediations (detect + fix scripts)\nDetection script exits `1` when there's a problem → remediation script runs. Exit `0` = fine.\n```powershell\n# Detect: is the local admin \"support\" account present?\nif (Get-LocalUser -Name support -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }\n```\n\n## Troubleshooting on a device\n- Settings → Accounts → Access work or school → Info → **Sync**.\n- Logs: `C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs\\IntuneManagementExtension.log`\n- MDM diagnostic report: `mdmdiagnosticstool.exe -out C:\\temp\\mdm`\n- `dsregcmd /status` shows Entra join state and PRT.\n"
+ },
+ {
+  "id": "jamf-api",
+  "path": "content/mdm/jamf-api.md",
+  "title": "Jamf Pro API",
+  "category": "MDM",
+  "order": 2,
+  "summary": "Token auth, common endpoints and a Python template for the Jamf Pro and Classic APIs.",
+  "tags": [
+   "jamf",
+   "api",
+   "python",
+   "automation"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Two APIs\n- **Jamf Pro API** (`/api/...`), JSON, modern. Swagger at `https://<you>.jamfcloud.com/api/doc`.\n- **Classic API** (`/JSSResource/...`), XML/JSON, older but still needed for some objects (policies, some groups).\n\n## Auth (API client, recommended)\nSettings → System → **API roles and clients**. Create a role with only the privileges needed, then a client → client ID + secret.\n```bash\nJAMF=https://yourorg.jamfcloud.com\nTOKEN=$(curl -s -X POST \"$JAMF/api/oauth/token\" \\\n  -d grant_type=client_credentials -d client_id=\"$CID\" -d client_secret=\"$CSECRET\" | jq -r .access_token)\nH=\"Authorization: Bearer $TOKEN\"\n```\nToken lifetime is set on the API client (`expires_in` in the response). Refresh it before long jobs.\n\n## Common calls\n```bash\n# Computer inventory with selected sections\ncurl -s -H \"$H\" \"$JAMF/api/v1/computers-inventory?section=GENERAL&section=HARDWARE&page-size=100&page=0\"\n\n# Find by serial\ncurl -s -H \"$H\" -G \"$JAMF/api/v1/computers-inventory\" \\\n  --data-urlencode 'filter=hardware.serialNumber==\"C02XXXXX\"'\n\n# Send MDM commands (lock / erase / restart etc.)\ncurl -s -X POST -H \"$H\" -H 'Content-Type: application/json' \"$JAMF/api/v2/mdm/commands\" \\\n  -d '{\"clientData\":[{\"managementId\":\"<mgmt-id>\"}],\"commandData\":{\"commandType\":\"DEVICE_LOCK\",\"pin\":\"123456\"}}'\n\n# FileVault recovery key\ncurl -s -H \"$H\" \"$JAMF/api/v1/computers-inventory/<id>/filevault\"\n\n# Classic: smart group members\ncurl -s -H \"$H\" -H 'Accept: application/json' \"$JAMF/JSSResource/computergroups/name/FileVault%20not%20enabled\"\n```\n\n## Python: paginate inventory\n```python\nimport os, requests\nJ = \"https://yourorg.jamfcloud.com\"\ntok = requests.post(f\"{J}/api/oauth/token\", data={\n    \"grant_type\":\"client_credentials\",\"client_id\":os.environ[\"CID\"],\"client_secret\":os.environ[\"CSECRET\"]}).json()[\"access_token\"]\nS = requests.Session(); S.headers[\"Authorization\"] = f\"Bearer {tok}\"\n\npage = 0\nwhile True:\n    r = S.get(f\"{J}/api/v1/computers-inventory\",\n              params={\"section\":[\"GENERAL\",\"OPERATING_SYSTEM\"],\"page\":page,\"page-size\":200}).json()\n    for c in r[\"results\"]:\n        print(c[\"general\"][\"name\"], c[\"operatingSystem\"][\"version\"], c[\"general\"][\"lastContactTime\"])\n    page += 1\n    if page * 200 >= r[\"totalCount\"]: break\n```\n\n## Tips\n- `managementId` (for MDM commands) is in the GENERAL section of inventory.\n- Least privilege: a reporting client gets *Read Computers* only.\n- Store secrets in a vault or environment variables, never in the script or the Git repo.\n"
+ },
+ {
+  "id": "jamf-pro",
+  "path": "content/mdm/jamf-pro.md",
+  "title": "Jamf Pro: core building blocks",
+  "category": "MDM",
+  "order": 1,
+  "summary": "Smart groups, policies, configuration profiles, extension attributes, PreStage and patching in Jamf Pro.",
+  "tags": [
+   "jamf",
+   "macos",
+   "mdm",
+   "smart groups",
+   "policies",
+   "profiles"
+  ],
+  "updated": "2026-10-16",
+  "body": "## The mental model\n**Inventory** (what the Mac reports) → **Smart Groups** (who matches a rule) → **Scope** → **Policies** (run things) and **Configuration Profiles** (enforce settings).\n\n| Object | Delivered by | Use for |\n|---|---|---|\n| Configuration Profile | MDM / APNs, instant | Settings Apple exposes: FileVault, firewall, Wi-Fi, PPPC, restrictions, SSO extension, OS update rules |\n| Policy | Jamf agent check-in (default every 15 min) | Installing packages, running scripts, inventory updates, Self Service items |\n| Extension Attribute | Inventory update | Custom data: script that prints `<result>value</result>` |\n| Smart Group | Re-evaluated at each inventory | Dynamic targeting and compliance views |\n| Static Group | Manual | Pilots, exceptions |\n\n## Policy triggers\n`Recurring Check-in`, `Enrollment Complete`, `Login`, `Startup`, `Network State Change`, `Custom` (run with `sudo jamf policy -event <name>`), and **Self Service**.\nExecution frequency: Once per computer, Once per user per computer, Ongoing, Once every day/week/month.\n\n## Useful Smart Groups (criteria)\n| Group | Criteria |\n|---|---|\n| FileVault not enabled | *FileVault 2 Status* is not *All Partitions Encrypted* |\n| OS out of date | *Operating System Version* less than `15.6` (update each release) |\n| Stale devices | *Last Check-in* more than x days ago `14` |\n| Missing EDR | *Application Title* does not have `Falcon.app` (or your EA) |\n| No recovery key escrowed | *FileVault 2 Individual Key Validation* is not *Valid* |\n\n## Extension attribute template\n```bash\n#!/bin/zsh\n# Reports whether the macOS firewall is on\nstate=$(/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null)\nif [[ $state == *\"enabled\"* ]]; then echo \"<result>On</result>\"; else echo \"<result>Off</result>\"; fi\n```\n\n## Agent commands on a Mac\n```bash\nsudo jamf policy                 # run check-in policies now\nsudo jamf policy -event install-office\nsudo jamf recon                  # send inventory now\nsudo jamf manage                 # re-apply management framework\nsudo profiles show -type configuration   # list installed profiles\nsudo profiles status -type enrollment    # MDM + ADE enrollment state\nsudo log show --last 1h --predicate 'subsystem == \"com.apple.ManagedClient\"'\ntail -f /var/log/jamf.log\n```\n\n## PreStage Enrollment (zero-touch)\nComputers → PreStage Enrollments. Set: require authentication (Okta via Jamf Connect or enrollment customization), make MDM profile non-removable, skip Setup Assistant panes, account settings (local admin managed, user as standard), and the profiles to install during enrollment. Scope by serial numbers assigned from ABM.\n\n## Patching\n- **App Installers** (Jamf's curated catalog) for common apps: auto-updates with deadlines.\n- **Patch Management** titles for reporting and policies for other software.\n- macOS updates: use **Declarative Device Management** software update enforcement (Blueprints / DDM) with a deadline, not old-style \"softwareupdate\" scripts.\n\n## Gotchas\n- Profiles are instant; policies wait for check-in. If a user is waiting, use a profile or ask them to run Self Service.\n- **PPPC (Privacy Preferences) profiles** must be installed before the app that needs them, or the user gets prompts.\n- Removing a Mac from a profile's scope removes the profile. Watch out with exclusions on FileVault and restrictions.\n"
+ },
+ {
+  "id": "mdm-migration",
+  "path": "content/mdm/mdm-migration.md",
+  "title": "MDM migration to Jamf",
+  "category": "MDM",
+  "order": 6,
+  "summary": "Plan and run a fleet move from another MDM (e.g. Workspace ONE) to Jamf Pro with minimal disruption.",
+  "tags": [
+   "jamf",
+   "migration",
+   "mdm",
+   "workspace one",
+   "abm"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Why it's tricky\nA Mac can have only one MDM profile. Removing the old one drops its profiles (Wi-Fi, certs, FileVault escrow, PPPC) before the new ones arrive. Plan for that gap.\n\n## Phases\n**1. Inventory & parity**\n- Export every profile, app, script and compliance rule from the old MDM.\n- Rebuild in Jamf: configuration profiles, policies, Smart Groups, PreStage.\n- Check items with dependencies: Wi-Fi cert payloads (SCEP/ACME), FileVault (needs key re-escrow), PPPC/system extensions (EDR, Zoom), Kernel/System extension allow lists.\n\n**2. ABM**\n- Add Jamf as an MDM server in ABM, upload its token.\n- Reassign devices (by serial or order) from the old MDM to Jamf in ABM. This does not move enrolled devices; it controls the next enrollment.\n\n**3. Pilot (IT + 5–10 users)**\nChoose the method:\n| Method | How | User impact |\n|---|---|---|\n| **macOS 26+ ABM-based migration** | In ABM, reassign to new MDM and set a migration deadline; macOS prompts and migrates without wipe | Lowest |\n| **Migration tool** (e.g. a script/app that removes old MDM then runs `profiles renew -type enrollment`) | Policy from old MDM triggers it | A few clicks, needs admin rights handling |\n| **Wipe and re-enroll** | Erase, ADE enrolls into Jamf | Highest, cleanest |\n\nConfirm the ABM-based deadline option exists for your macOS versions before relying on it.\n\n**4. Waves**\nDepartment by department. Communicate dates, what the user will see, and expected 15–30 min.\n\n**5. Verify each device**\n- `sudo profiles status -type enrollment` shows Jamf; Jamf inventory present\n- FileVault key escrowed (Smart Group: *Individual Key Validation = Valid*)\n- EDR running, Wi-Fi connected, Okta Device Trust shows managed\n\n**6. Decommission**\nRetire the old MDM only after every serial is checked in to Jamf. Keep its reports for audit.\n\n## Rollback plan\nKeep the old MDM tenant live during waves. If a wave fails, pause the reassignment in ABM and re-enroll affected Macs into the old MDM.\n"
+ },
+ {
+  "id": "sccm",
+  "path": "content/mdm/sccm.md",
+  "title": "SCCM / Configuration Manager",
+  "category": "MDM",
+  "order": 5,
+  "summary": "Collections, application and software update deployment, and client troubleshooting in ConfigMgr.",
+  "tags": [
+   "sccm",
+   "configmgr",
+   "mecm",
+   "windows",
+   "patching"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Core objects\n| Object | What it is |\n|---|---|\n| **Collection** | Group of devices/users. Query-based (dynamic), direct (static), include/exclude rules |\n| **Application** | Modern deployment type with detection method, requirements, supersedence |\n| **Package/Program** | Legacy script-style deployment |\n| **Software Update Group** | Bundle of patches deployed to a collection |\n| **Task Sequence** | OS deployment or multi-step installs |\n| **Boundary / Boundary Group** | IP/AD-site ranges that decide which DP a client uses |\n| **Maintenance Window** | When required deployments/reboots may run |\n\n## Query-based collection (WQL)\n```sql\nselect SMS_R_SYSTEM.ResourceID, SMS_R_SYSTEM.Name from SMS_R_System\ninner join SMS_G_System_OPERATING_SYSTEM on SMS_G_System_OPERATING_SYSTEM.ResourceId = SMS_R_System.ResourceId\nwhere SMS_G_System_OPERATING_SYSTEM.Caption like \"%Windows 11%\"\n```\n\n## Deploy an app\n1. Software Library → Applications → Create Application (MSI auto-fills detection; for EXE add a detection rule).\n2. **Distribute Content** to distribution points.\n3. Deploy → collection → *Available* (Software Center) or *Required* (with deadline).\n4. Monitor → Deployments → status per device.\n\n## Patching cycle (Patch Tuesday)\n1. Software Updates → All Software Updates → sync (or ADR runs automatically).\n2. **Automatic Deployment Rule**: e.g. Product = Windows 11, Classification = Security/Critical, Released = last 1 month → new SUG each month.\n3. Deploy to **Pilot** collection day 0–2 → **Broad** with a 7-day deadline.\n4. Report: Monitoring → Reports → *Software Updates - A Compliance*.\n\n## Client troubleshooting\n- Control Panel → **Configuration Manager** → Actions → *Machine Policy Retrieval & Evaluation Cycle*.\n- Logs: `C:\\Windows\\CCM\\Logs` — read with **CMTrace**.\n| Log | For |\n|---|---|\n| `AppEnforce.log` | App install command and exit code |\n| `AppDiscovery.log` | Detection method results |\n| `WUAHandler.log` / `UpdatesDeployment.log` | Patching |\n| `PolicyAgent.log` | Policy download |\n| `LocationServices.log` | Boundary / DP / management point |\n| `ccmsetup.log` | Client install |\n```powershell\nInvoke-WmiMethod -Namespace root\\ccm -Class SMS_Client -Name TriggerSchedule \"{00000000-0000-0000-0000-000000000021}\"  # machine policy\n```\n\n## Co-management with Intune\nEnable co-management, then slide workloads (compliance, Windows Update, apps…) to Intune one at a time with a pilot collection.\n"
+ },
+ {
+  "id": "atlassian",
+  "path": "content/ops/atlassian.md",
+  "title": "Atlassian: Jira, JSM, Confluence, Rovo",
+  "category": "OPS",
+  "order": 1,
+  "summary": "Admin essentials for Jira Service Management queues and SLAs, JQL, automation, Confluence spaces and Rovo.",
+  "tags": [
+   "jira",
+   "jira service management",
+   "jsm",
+   "confluence",
+   "rovo",
+   "jql",
+   "automation"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Admin locations\n| Need | Where |\n|---|---|\n| Users, groups, SSO, SCIM | admin.atlassian.com → Directory / Security (SSO needs **Atlassian Guard**) |\n| Product access | admin.atlassian.com → Products / Groups |\n| JSM request types, queues, SLAs | Project settings (service project) |\n| Automation | Project settings → Automation (or global: Settings → System → Automation) |\n| Confluence space permissions | Space settings → Permissions |\n| Rovo | admin.atlassian.com → Rovo / AI settings, connectors |\n\n## Okta → Atlassian\nVerify your domain → Atlassian Guard → **Identity providers** → add Okta (SAML) → **user provisioning** (SCIM) from Okta. Product access then follows synced groups (e.g. `app-jira-users` → Jira).\n\n## JSM setup checklist\n1. **Request types** with simple customer-facing names (\"Get access to an app\", \"Laptop problem\", \"New hire setup\").\n2. **Portal groups** to organize them.\n3. **Queues** for agents: *Unassigned*, *My open*, *Breaching SLA*, *Access requests*.\n4. **SLAs**: Time to first response, Time to resolution, with calendars and goals by priority.\n5. **Approvals** on access requests (approver = manager field or app owner group).\n6. **Knowledge base**: link a Confluence space so suggested articles deflect tickets.\n\n## JQL you'll reuse\n```sql\nproject = IT AND status not in (Done, Closed) AND assignee is EMPTY ORDER BY created ASC\nproject = IT AND \"Request Type\" = \"Get access to an app\" AND created >= -30d\nproject = IT AND \"Time to resolution\" = breached()\nproject = IT AND resolved >= startOfMonth(-1) AND resolved < startOfMonth()\nassignee = currentUser() AND statusCategory != Done\ntext ~ \"vpn\" AND created >= -7d\n```\n\n## Automation recipes\n- **Auto-triage**: When issue created → if summary contains \"password|locked\" → set request type + assign to L1 + comment KB link.\n- **Access request**: When approved → Send web request to Okta API (add user to group) → comment and resolve. Store the token as a secret.\n- **Stale pending**: Scheduled daily → JQL `status = \"Waiting for customer\" AND updated <= -5d` → comment reminder; after 10 days resolve.\n- Smart values: `{{issue.reporter.emailAddress}}`, `{{issue.customfield_10050}}`, `{{now.format(\"yyyy-MM-dd\")}}`.\n\n## Confluence\n- Space per team; **runbooks** as page templates; labels for search (`runbook`, `okta`, `jamf`).\n- Permissions: space-level groups, page restrictions only when needed.\n- Archive stale pages yearly; owner listed at the top of every runbook.\n\n## Rovo\nAtlassian's AI layer: search across Jira/Confluence and connected apps, chat, and **agents**. For service desks, use it to suggest KB articles, summarize tickets, and draft replies. Check its permissions follow the user's product access, and review connectors before enabling.\n"
+ },
+ {
+  "id": "runbook-writing",
+  "path": "content/ops/runbook-writing.md",
+  "title": "Writing runbooks & KB articles",
+  "category": "OPS",
+  "order": 3,
+  "summary": "A runbook template and writing rules so documentation is usable by someone else at 2 a.m.",
+  "tags": [
+   "runbook",
+   "documentation",
+   "knowledge base",
+   "technical writing",
+   "kb"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Runbook template\n```markdown\n# <Task name, verb first: \"Offboard a user\">\nOwner: <name> · Last tested: <date> · Systems: Okta, Google, Jamf\n\n## When to use\nOne or two sentences. What triggers this runbook.\n\n## Before you start\n- Access needed (roles, accounts)\n- Info needed (ticket number, user email, manager)\n\n## Steps\n1. <Action> — <where> — <expected result>\n2. ...\n\n## Verify\nHow you know it worked (what to check, where).\n\n## Rollback\nHow to undo each risky step.\n\n## Escalation\nWho to call if stuck; vendor support links.\n```\n\n## Writing rules\n- **One action per step**, starting with a verb: \"Deactivate the user in Okta\".\n- Include the **expected result** so the reader knows a step worked.\n- Exact names: menu paths in **bold**, commands in code blocks, values in `code`.\n- Screenshots only where the UI is confusing; they go stale fastest.\n- Put warnings **before** the step they apply to.\n- Date-stamp and name an owner. Review quarterly; mark \"Last tested\".\n\n## KB article (end-user) template\n```markdown\n# How to <do the thing>\n**Applies to:** Mac / Windows / everyone\n1. ...\n2. ...\n**Still stuck?** Open a ticket: <portal link> and choose \"<request type>\".\n```\nWrite at the user's level: name buttons as they appear, no internal jargon (say \"work account\", not \"Okta tenant\").\n\n## Turning tickets into docs\nWhen the same ticket appears 3+ times: write the KB, link it in the JSM/ServiceNow request type, and track whether volume drops.\n"
+ },
+ {
+  "id": "servicenow",
+  "path": "content/ops/servicenow.md",
+  "title": "ServiceNow",
+  "category": "OPS",
+  "order": 2,
+  "summary": "Navigating incidents, requests and changes, list filters, and the essentials of ITIL workflow.",
+  "tags": [
+   "servicenow",
+   "itsm",
+   "incident",
+   "change",
+   "itil"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Records and prefixes\n| Prefix | Record | Purpose |\n|---|---|---|\n| INC | Incident | Something broke; restore service |\n| REQ / RITM / SCTASK | Request / Requested item / Catalog task | Something asked for (access, hardware) |\n| CHG | Change | Planned change to production |\n| PRB | Problem | Root cause of repeated incidents |\n| KB | Knowledge article | How-to / fix |\n\n## Navigation tricks\n- Filter navigator: type `incident.list`, `sc_req_item.list`, `change_request.list` and press Enter.\n- `incident.do` opens a new form; `.LIST` (caps) opens the list in a new tab.\n- Breadcrumb filters: right-click a value → *Show matching* / *Filter out*.\n- Save a list filter as a **favorite** (star) and add columns via the gear icon.\n- Encoded query: build a filter → right-click the breadcrumb → *Copy query* → reuse in reports/API.\n\n## Useful list filters\n```text\nassigned_to=javascript:gs.getUserID()^active=true\nassignment_group=<IT Endpoint>^state!=6^state!=7   (exclude resolved/closed)\nsys_created_on>=javascript:gs.beginningOfLast30Days()\npriority<=2^active=true\n```\n\n## Incident flow\nNew → In Progress → On Hold (awaiting caller/vendor) → Resolved (with resolution code + notes) → Closed (auto after N days).\nPriority = **Impact × Urgency**. Write work notes (internal) vs additional comments (customer-visible) deliberately.\n\n## Change types\n| Type | Approval | Example |\n|---|---|---|\n| Standard | Pre-approved template | Add user to app group |\n| Normal | CAB / manager approval | New Conditional Access policy |\n| Emergency | Expedited, reviewed after | Revoke compromised token org-wide |\nA normal change record needs: description, justification, risk, **implementation plan**, **backout plan**, **test plan**, schedule window. Same structure as your runbooks.\n\n## REST API (Table API)\n```bash\ncurl -s -u \"$SN_USER:$SN_PASS\" -H \"Accept: application/json\" \\\n  \"https://<instance>.service-now.com/api/now/table/incident?sysparm_query=active=true^priority=1&sysparm_fields=number,short_description&sysparm_limit=20\"\n```\n"
+ },
+ {
+  "id": "splunk",
+  "path": "content/siem/splunk.md",
+  "title": "Splunk SPL for identity & endpoint",
+  "category": "SIEM",
+  "order": 1,
+  "summary": "SPL patterns and ready-made searches for Okta, Entra, Google and Jamf logs.",
+  "tags": [
+   "splunk",
+   "spl",
+   "siem",
+   "detection",
+   "logs"
+  ],
+  "updated": "2026-10-16",
+  "body": "## SPL shape\n`search terms | where/filter | eval new fields | stats/aggregate | sort | table`\nFilter as early as possible (index, sourcetype, time) — it's the biggest speed win.\n\n## Core commands\n| Command | Example |\n|---|---|\n| `stats` | `stats count by user, outcome.result` |\n| `timechart` | `timechart span=1h count by eventType` |\n| `eval` | `eval hour=strftime(_time,\"%H\")` |\n| `where` | `where count > 10` |\n| `rex` | `rex field=_raw \"user=(?<user>\\S+)\"` |\n| `lookup` | `lookup hr_users.csv email AS user OUTPUT status` |\n| `dedup` / `table` / `rename` / `sort -count` | output shaping |\n| `iplocation` | `iplocation src_ip` adds City, Country |\n| `transaction` | group events into sessions (slow — prefer `stats`) |\n\n## Ready-made searches (Okta add-on field names)\n```spl\n# Brute force / password spray: one IP, many users failing\nindex=okta eventType=\"user.session.start\" outcome.result=FAILURE\n| stats dc(actor.alternateId) as users count by client.ipAddress\n| where users > 10\n\n# MFA fatigue: many push denials for one user\nindex=okta eventType=\"user.authentication.auth_via_mfa\" outcome.result=FAILURE\n| stats count by actor.alternateId | where count >= 5\n\n# Admin privilege granted\nindex=okta eventType=\"user.account.privilege.grant\"\n| table _time actor.alternateId target{}.alternateId debugContext.debugData.privilegeGranted\n\n# Leaver still active? join with HR terminations lookup\nindex=okta eventType=\"user.session.start\" outcome.result=SUCCESS\n| lookup terminated_users.csv email AS actor.alternateId OUTPUT term_date\n| where isnotnull(term_date)\n\n# Impossible travel (rough)\nindex=okta eventType=\"user.session.start\" outcome.result=SUCCESS\n| iplocation client.ipAddress\n| stats values(Country) as countries dc(Country) as n by actor.alternateId\n| where n > 1\n```\n\n## Alerts\nSave search → **Save As → Alert** → cron schedule (e.g. every 15 min over last 15 min) → trigger when results > 0 → action: email, Slack webhook, or ticket.\n\n## Tips\n- `| fieldsummary` shows every field in a sourcetype when you don't know names.\n- Use `earliest=-24h latest=now` in the search to override the time picker.\n- Build **lookups** for HR roster, break-glass accounts and allowed countries; they make detections precise.\n"
+ },
+ {
+  "id": "cloudflare-zt",
+  "path": "content/ztna/cloudflare-zt.md",
+  "title": "Cloudflare Zero Trust",
+  "category": "ZTNA",
+  "order": 2,
+  "summary": "Access applications, Tunnels, WARP client, device posture and Gateway policies.",
+  "tags": [
+   "cloudflare",
+   "ztna",
+   "access",
+   "tunnel",
+   "warp",
+   "gateway"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Pieces\n| Piece | What it does |\n|---|---|\n| **Access** | Identity-aware proxy in front of apps (replaces VPN for web, SSH, RDP) |\n| **Tunnel** (`cloudflared`) | Outbound-only connector from your network to Cloudflare. No inbound firewall holes |\n| **WARP client** | Device agent: sends traffic to Gateway, provides device identity and posture |\n| **Gateway** | DNS / HTTP / network filtering and policies |\n| **Device posture** | Checks from WARP or integrations (Intune, CrowdStrike, Jamf via service-to-service) |\n\nDashboard: one.dash.cloudflare.com.\n\n## Connect Okta as IdP\nSettings → Authentication → Login methods → Add → Okta (OIDC). Create the OIDC app in Okta with redirect `https://<team>.cloudflareaccess.com/cdn-cgi/access/callback`. Enable the **groups** claim so policies can use Okta groups.\n\n## Publish an internal app with a Tunnel\n```bash\ncloudflared tunnel login\ncloudflared tunnel create corp-tunnel\ncloudflared tunnel route dns corp-tunnel wiki.company.com\n# ~/.cloudflared/config.yml\n#   tunnel: <TUNNEL-UUID>\n#   credentials-file: /root/.cloudflared/<TUNNEL-UUID>.json\n#   ingress:\n#     - hostname: wiki.company.com\n#       service: http://10.0.0.15:8080\n#     - service: http_status:404\ncloudflared tunnel run corp-tunnel\nsudo cloudflared service install   # run as a service\n```\nMost teams now create **remotely managed tunnels** in the dashboard (Networks → Tunnels) and install with one token command.\n\n## Access application policy\nAccess → Applications → Add → Self-hosted → hostname `wiki.company.com`.\nPolicy example: **Allow** — Include: Okta group `dept-engineering`; Require: Device posture `Jamf compliant` + `WARP connected`.\nRemember: **Include** = OR, **Require** = AND, **Exclude** = NOT.\n\n## WARP deployment\n- Mac: deploy the package + a configuration profile with `organization`, `auto_connect`, `service_mode` through Jamf.\n- Windows: MSI via Intune with `ORGANIZATION=<team>`.\n- Enable **device enrollment rules** so only Okta users in allowed groups can enroll.\n\n## Troubleshooting\n- `warp-cli status` / `warp-cli settings` on the device.\n- Access → Logs to see which policy allowed or blocked.\n- `cloudflared tunnel info corp-tunnel` to check connectors.\n"
+ },
+ {
+  "id": "network-fundamentals",
+  "path": "content/ztna/network-fundamentals.md",
+  "title": "Networking: VLAN, VPN, DNS, DHCP, firewall",
+  "category": "ZTNA",
+  "order": 3,
+  "summary": "Quick reference for network troubleshooting and coordinating changes with network teams.",
+  "tags": [
+   "vlan",
+   "vpn",
+   "dns",
+   "dhcp",
+   "firewall",
+   "networking",
+   "troubleshooting"
+  ],
+  "updated": "2026-10-16",
+  "body": "## Troubleshoot bottom-up\n1. **Link**: cable/Wi-Fi associated? `ifconfig` / `ipconfig /all`\n2. **IP**: got a DHCP lease? `169.254.x.x` = no DHCP response\n3. **Gateway**: `ping <default gateway>`\n4. **DNS**: `nslookup app.company.com` / `dig app.company.com +short`\n5. **Path**: `traceroute` / `tracert`\n6. **Port**: `nc -vz host 443` (Mac) / `Test-NetConnection host -Port 443` (Windows)\n7. **App**: `curl -v https://host`\n\n## DNS\n| Record | Use |\n|---|---|\n| A / AAAA | Name → IPv4 / IPv6 |\n| CNAME | Alias to another name |\n| MX | Mail servers |\n| TXT | SPF, DKIM, DMARC, domain verification (Google, Okta, Zoom) |\n| SRV | Service location (AD `_ldap._tcp`) |\n```bash\ndig company.com TXT +short\ndig @1.1.1.1 app.company.com          # ask a specific resolver\nsudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder   # macOS flush\nipconfig /flushdns                      # Windows flush\n```\nEmail auth: SPF `v=spf1 include:_spf.google.com ~all`, DKIM from Workspace admin, DMARC `v=DMARC1; p=quarantine; rua=mailto:dmarc@company.com`.\n\n## DHCP\nDORA: Discover → Offer → Request → Acknowledge. Know: scope, lease time, reservations (printers, servers), options (003 router, 006 DNS). `ipconfig /release` + `/renew`; Mac: `sudo ipconfig set en0 DHCP`.\n\n## VLANs\n- Segment by trust: **Corp**, **Guest** (internet only), **IoT/Printers**, **Servers**, **Management**.\n- Access port = one untagged VLAN; trunk = multiple tagged (802.1Q).\n- Inter-VLAN traffic goes through a router/firewall; that's where you enforce rules.\n- 802.1X with certificates (deployed by Jamf/Intune) can place devices on the right VLAN automatically.\n\n## VPN\n- **Full tunnel** = all traffic through VPN; **split tunnel** = only corporate subnets.\n- Common issues: overlapping subnets (home router uses same 10.x/192.168.x range), MTU, DNS not using VPN resolvers, expired client cert.\n- Zero Trust direction: replace network VPN with per-app access (Cloudflare Access) where you can.\n\n## Firewall change request template\n```text\nSource:        VLAN 20 Corp (10.20.0.0/16)\nDestination:   10.50.0.15 (wiki server)\nPort/Proto:    TCP 443\nDirection:     inbound to servers\nJustification: Internal wiki access for staff, ticket CHG0012345\nDuration:      permanent / until <date>\nOwner:         Rex Hector\nRollback:      remove rule ID <n>\n```\nAsk for **least privilege**: specific source, destination and port, never `any/any`.\n"
+ },
+ {
+  "id": "zero-trust",
+  "path": "content/ztna/zero-trust.md",
+  "title": "Zero Trust model & policy rollout",
+  "category": "ZTNA",
+  "order": 1,
+  "summary": "NIST 800-207 in practice, the signals you use, and a safe rollout checklist for any access policy.",
+  "tags": [
+   "zero trust",
+   "nist 800-207",
+   "policy",
+   "rollout",
+   "break-glass"
+  ],
+  "updated": "2026-10-16",
+  "body": "## NIST SP 800-207 mapped to your stack\n| Component | Job | Your tools |\n|---|---|---|\n| Policy Engine / Administrator | Decides allow / deny / step-up | Okta authentication policies, Entra Conditional Access, Cloudflare Access policies |\n| Policy Enforcement Point | Enforces the decision at the resource | Okta sign-in, SAML/OIDC in each app, Cloudflare Access proxy, WARP |\n| Signals | Feed the decision | Identity + group, MFA strength, device managed/compliant (Jamf, Intune, EDR), location, risk, time |\n| Logging | Prove it and detect misuse | Okta System Log, Entra sign-ins, Cloudflare logs → Splunk |\n\nPrinciples: never trust the network; verify every request; least privilege; assume breach; continuously re-evaluate.\n\n## Policy change checklist\n1. **Write the intent in one sentence.** \"Only managed, compliant devices with phishing-resistant MFA reach finance apps.\"\n2. **List who's affected** and who's excluded (break-glass, service accounts). Get the list from logs, not guesses.\n3. **Report-only / audit mode first** where the platform supports it (Entra report-only, Okta preview via policy simulation, Cloudflare in log mode).\n4. **Pilot group** (IT + volunteers) for a few days.\n5. **Communicate**: what changes, when, what users must do, where to get help.\n6. **Staged rollout** by department, with a named rollback step.\n7. **Monitor** denies in logs for a week. Fix false positives.\n8. **Document** the change: ticket, before/after config, approver. That's your audit evidence.\n\n## Break-glass accounts\n- At least two, cloud-only, not tied to a person, excluded from all conditional policies.\n- Long random passwords + hardware keys, stored in a safe or split custody.\n- Alert on every use. Test them quarterly.\n\n## Phishing-resistant MFA ladder\nSMS/voice → TOTP → push → **number-matching push** → **Okta FastPass / Windows Hello / passkeys / FIDO2 keys** (phishing-resistant). Push admins to the top first.\n"
+ }
+]
