@@ -55,6 +55,14 @@ The **Edit on GitHub** button on each page opens that page's file in GitHub's ed
 
 `middleware.js` enforces the password on every path. If the variables are missing, the site returns 503 instead of going public. Each push to `main` redeploys automatically.
 
+## Security
+
+- Every path is behind HTTP Basic Auth (`middleware.js`), checked in constant time and fails closed if the variables are unset.
+- No third-party requests: scripts (marked, DOMPurify) and fonts are self-hosted in `vendor/`.
+- Strict headers in `vercel.json`: Content-Security-Policy (`script-src 'self'`, no framing), HSTS, nosniff, no referrer, `noindex`, `no-store`.
+- Page Markdown is sanitized with DOMPurify before display.
+- The GitHub Action uses SHA-pinned actions and least-privilege token permissions.
+
 ## Privacy
 
 This repo is private. GitHub Pages would make the site public (or require a paid plan for private Pages), so the default is to read it locally. Don't put secrets, tokens or client data in pages.
